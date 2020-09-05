@@ -1,0 +1,17 @@
+{
+  "name": "ngcharts",
+  "version": "1.0.0",
+  "repository": "git@github.com:tjlav5/ngcharts.git",
+  "author": "TJ Lavelle <tj@lavelle.io>",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*"
+  ],
+  "private": true,
+  "scripts": {
+    "start": "yarn workspace site start"
+  },
+  "devDependencies": {
+    "typescript": "^4.0.2"
+  }
+}

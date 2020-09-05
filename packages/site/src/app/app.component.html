@@ -1,0 +1,32 @@
+<router-outlet></router-outlet>
+
+<chart render-on-resize style="width: 100vw; height: 100vh">
+  <!-- <svg:circle x="1" y="10" r="2"></svg:circle> -->
+
+  <svg:g [referencePoint]="{ x: 1, y: 10 }" />
+  <svg:g [referencePoint]="{ x: 50, y: 50 }" />
+  <svg:g [referencePoint]="{ x: 100, y: 100 }" />
+
+  <!-- <ng-container *ngFor="let foo of [].constructor(20); index as i">
+    <svg:g [referencePoint]="{ x: i * 50, y: i * 50 }" />
+  </ng-container> -->
+
+  <svg:g
+    color="blue"
+    [line]="[
+      { x: 0, y: 10 },
+      { x: 20, y: 70 },
+      { x: 500, y: 20 }
+    ]"
+  />
+
+  <g
+    curve
+    [data]="[
+      { x: 1, y: 1 },
+      { x: 100, y: 100 }
+    ]"
+  ></g>
+
+  <g xAxis></g>
+</chart>
