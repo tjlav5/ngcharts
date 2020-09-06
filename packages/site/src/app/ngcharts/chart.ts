@@ -1,5 +1,6 @@
 import { scaleLinear } from 'd3-scale';
 import { curveLinear, line } from 'd3-shape';
+import { axisBottom } from 'd3-axis';
 import {
   Directive,
   Input,
@@ -28,6 +29,7 @@ import {
   combineLatest,
 } from 'rxjs';
 import { map, tap, shareReplay, take, observeOn } from 'rxjs/operators';
+import { DomSanitizer } from '@angular/platform-browser';
 
 interface DataPoint {
   x: number;
@@ -59,8 +61,34 @@ export class LayoutService {
     );
   }
 
+  getPlane() {
+    return combineLatest(this.margins$, this.size$).pipe(
+      map(([margins, { width, height }]) => ({
+        top: margins.top,
+        bottom: height - margins.top - margins.bottom,
+        left: margins.left,
+        right: width - margins.left - margins.right,
+      }))
+    );
+  }
+
   getSize() {
     return this.size$;
+  }
+
+  requestSpace(direction: string, size: number) {
+    this.margins$.next({
+      ...this.margins$.value,
+      [direction]: this.margins$.value[direction] + size,
+    });
+    return () => this.relinquishSpace(direction, size);
+  }
+
+  private relinquishSpace(direction: string, size: number) {
+    this.margins$.next({
+      ...this.margins$.value,
+      [direction]: this.margins$.value[direction] + size,
+    });
   }
 }
 
@@ -227,32 +255,96 @@ export class Chart {
   ) {}
 }
 
-@Directive({
-  selector: '[curve]',
-})
-export class Curve {
-  private readonly _data = new BehaviorSubject([]);
-
-  @Input()
-  get data(): DataPoint[] {
-    return this._data.value;
-  }
-  set data(data: DataPoint[]) {
-    this._data.next(data);
-    this.chartService.setData('foo', data);
-  }
-
-  constructor(private readonly chartService: ChartService) {}
-}
-
 @Component({
   selector: 'g[xAxis]',
-  template: '<svg:circle [attr.r]="foo$|async"></svg:circle>',
+  template: `<svg:path
+      *ngIf="axisPath$ | async as axisPath"
+      [attr.d]="axisPath.d"
+      stroke="green"
+    ></svg:path>
+    <svg:g
+      *ngFor="let tick of ticks$ | async"
+      [style.transform]="tick.transform"
+      [style.fill]="'blue'"
+    >
+      <svg:line stroke="currentColor" y2="6"></svg:line>
+      <svg:text fill="currentColor" y="9" dy="0.71em">{{ tick.text }}</svg:text>
+    </svg:g>`,
+  host: {
+    'text-anchor': 'middle',
+  },
 })
 export class XAxis {
-  foo$ = this.chartService.getBounds();
+  // foo$ = this.chartService.getBounds();
+  private readonly xScale$ = combineLatest(
+    this.dataService.getExtents('_x_'),
+    this.layoutService.getSize()
+  ).pipe(
+    map(([extents, size]) => {
+      return scaleLinear().domain(extents).range([0, size.width]);
+    })
+  );
 
-  constructor(private readonly chartService: ChartService) {}
+  readonly foobar$ = this.xScale$.pipe(map((xScale) => xScale.ticks(4)));
+
+  // readonly axisPath$ = this.
+  readonly axisPath$ = combineLatest(
+    this.xScale$,
+    this.layoutService.getSize()
+  ).pipe(
+    map(([xScale, size]) => {
+      const lineGenerator = line()
+        // .curve(curveLinear)
+        .x(function (d) {
+          return xScale(d[0]);
+        })
+        .y(function (d) {
+          return size.height - 20;
+        });
+      return {
+        d: lineGenerator([
+          [0, 0],
+          [500, 0],
+        ]),
+      };
+    })
+  );
+
+  readonly ticks$ = combineLatest(
+    this.xScale$,
+    this.layoutService.getSize()
+  ).pipe(
+    observeOn(animationFrameScheduler),
+    map(([xScale, size]) => {
+      // transform x+y
+      // text
+
+      const ticks = xScale.ticks();
+      //   console.log(ticks);
+      const newTicks = ticks.map((t) => ({
+        transform: this.sanitizer.bypassSecurityTrustStyle(
+          `translate(${xScale(t)}px, ${size.height - 20}px)`
+        ),
+        text: `${t}`,
+      }));
+      //   console.log(newTicks);
+      return newTicks;
+    })
+  );
+
+  private readonly relinquishSpace: () => void;
+
+  constructor(
+    private readonly dataService: DataService,
+    private readonly layoutService: LayoutService,
+    private sanitizer: DomSanitizer
+  ) {
+    this.relinquishSpace = this.layoutService.requestSpace('bottom', 20);
+  }
+
+  ngOnDestroy() {
+    this.relinquishSpace();
+  }
 }
 
 interface WindowWithResizeObserver extends Window {
@@ -412,18 +504,18 @@ export class Line {
 
   private readonly xScale$ = combineLatest(
     this.dataService.getExtents('_x_'),
-    this.layoutService.getSize()
+    this.layoutService.getPlane()
   ).pipe(
-    map(([extents, size]) => {
-      return scaleLinear().domain(extents).range([0, size.width]);
+    map(([extents, plane]) => {
+      return scaleLinear().domain(extents).range([plane.left, plane.right]);
     })
   );
   private readonly yScale$ = combineLatest(
     this.dataService.getExtents('_y_'),
-    this.layoutService.getSize()
+    this.layoutService.getPlane()
   ).pipe(
-    map(([extents, size]) => {
-      return scaleLinear().domain(extents).range([0, size.height]);
+    map(([extents, plane]) => {
+      return scaleLinear().domain(extents).range([plane.top, plane.bottom]);
     })
   );
 
@@ -435,17 +527,14 @@ export class Line {
     map(([data, xScale, yScale]) => {
       const lineGenerator = line()
         .curve(curveLinear)
-        .x(function (d: DataPoint) {
-          return xScale(d.x);
+        .x(function (d) {
+          return xScale(d[0]);
         })
-        .y(function (d: DataPoint) {
-          return yScale(d.y);
+        .y(function (d) {
+          return yScale(d[1]);
         });
       return {
-        d: lineGenerator(data),
-        // x: xScale(data.x),
-        // y: yScale(data.y),
-        // r: 10,
+        d: lineGenerator(data.map((d) => [d.x, d.y])),
       };
     })
   );

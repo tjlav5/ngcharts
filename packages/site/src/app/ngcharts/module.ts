@@ -2,7 +2,6 @@ import { NgModule } from '@angular/core';
 import {
   Chart,
   ChartPortal,
-  Curve,
   XAxis,
   ChartResize,
   Line,
@@ -16,7 +15,6 @@ const EXPORTED_COMPONENTS = [
   Chart,
   ChartResize,
   ChartPortal,
-  Curve,
   ReferencePoint,
 ];
 
