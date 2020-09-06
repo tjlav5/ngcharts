@@ -32,6 +32,12 @@
   />
 
   <svg:g
+    *ngFor="let randomLine of randomLines"
+    color="blue"
+    [line]="randomLine"
+  />
+
+  <svg:g
     color="red"
     [line]="[
       { x: 0, y: 90 },

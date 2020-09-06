@@ -1,4 +1,5 @@
 import { scaleLinear } from 'd3-scale';
+import { ComponentStore } from '@ngrx/component-store';
 import { curveLinear, line } from 'd3-shape';
 import { axisBottom } from 'd3-axis';
 import {
@@ -36,59 +37,150 @@ interface DataPoint {
   y: number;
 }
 
-@Directive({
-  selector: 'chart-portal, g[chart-portal]',
-})
-export class ChartPortal {}
+export interface ChartState {
+  size: {
+    width: number;
+    height: number;
+  };
+  margins: {
+    top: number;
+    bottom: number;
+    left: number;
+    right: number;
+  };
+  data: {
+    [key: string]: {
+      xAxisId: string;
+      yAxisId: string;
+      data: DataPoint[];
+    };
+  };
+}
+
+interface AddData {
+  id: string;
+  data: DataPoint[];
+  xAxisId: string;
+  yAxisId: string;
+}
 
 @Injectable()
-export class LayoutService {
-  private readonly margins$ = new BehaviorSubject({
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
+export class ChartStore extends ComponentStore<ChartState> {
+  constructor() {
+    super({
+      size: {
+        width: 0,
+        height: 0,
+      },
+      margins: {
+        top: 0,
+        bottom: 0,
+        left: 0,
+        right: 0,
+      },
+      data: {},
+    });
+  }
+
+  readonly setSize = this.updater(
+    (state, [width, height]: [number, number]) => ({
+      ...state,
+      size: {
+        width,
+        height,
+      },
+    })
+  );
+
+  readonly addData = this.updater((state, payload: AddData) => {
+    return {
+      ...state,
+      data: {
+        ...state.data,
+        [payload.id]: {
+          data: payload.data,
+          xAxisId: payload.xAxisId,
+          yAxisId: payload.yAxisId,
+        },
+      },
+    };
   });
 
-  constructor(private readonly size$: NgResizeObserver) {}
+  private allData$ = this.select(this.state$, (state) => state.data);
+  size$ = this.select(this.state$, (state) => state.size);
+  private margins$ = this.select(this.state$, (state) => state.margins);
 
-  getPlaneSize() {
-    combineLatest(this.margins$, this.size$).pipe(
-      map(([margins, { width, height }]) => ({
-        width: width - margins.left - margins.right,
-        height: height,
-      }))
+  private getDataByAxis(axisId: string) {
+    return this.select(this.allData$, (allData) => {
+      return Object.values(allData).flatMap((data) => {
+        if (data.xAxisId === axisId) {
+          return data.data.map((d) => d.x);
+        } else if (data.yAxisId === axisId) {
+          return data.data.map((d) => d.y);
+        } else {
+          return [];
+        }
+      });
+    });
+  }
+
+  private getExtentsByAxis(axisId: string) {
+    return this.select(this.getDataByAxis(axisId), (data) => {
+      let min = Infinity;
+      let max = -Infinity;
+
+      for (const d of data) {
+        if (d < min) min = d;
+        if (d > max) max = d;
+      }
+
+      return [min, max];
+    });
+  }
+
+  getScaleByAxis(axisId: string, direction: string) {
+    return this.select(
+      this.size$,
+      this.margins$,
+      this.getExtentsByAxis(axisId),
+      ({ width, height }, margins, extents) => {
+        if (direction === 'primary') {
+          return scaleLinear()
+            .domain(extents)
+            .range([margins.left, width - margins.left - margins.right]);
+        } else {
+          console.log(extents, margins.top, margins.bottom, height);
+          return scaleLinear()
+            .domain(extents)
+            .range([margins.top, height - margins.top - margins.bottom]);
+        }
+      }
     );
   }
 
-  getPlane() {
-    return combineLatest(this.margins$, this.size$).pipe(
-      map(([margins, { width, height }]) => ({
-        top: margins.top,
-        bottom: height - margins.top - margins.bottom,
-        left: margins.left,
-        right: width - margins.left - margins.right,
-      }))
-    );
-  }
-
-  getSize() {
-    return this.size$;
+  getData(id: string): Observable<DataPoint[]> {
+    return this.select(this.allData$, (allData) => allData[id]?.data || []);
   }
 
   requestSpace(direction: string, size: number) {
-    this.margins$.next({
-      ...this.margins$.value,
-      [direction]: this.margins$.value[direction] + size,
-    });
+    this.setState((state) => ({
+      ...state,
+      margins: {
+        ...state.margins,
+        [direction]: state.margins[direction] + size,
+      },
+    }));
     return () => this.relinquishSpace(direction, size);
   }
 
   private relinquishSpace(direction: string, size: number) {
-    this.margins$.next({
-      ...this.margins$.value,
-      [direction]: this.margins$.value[direction] + size,
-    });
+    this.setState((state) => ({
+      ...state,
+      margins: {
+        ...state.margins,
+        [direction]: state.margins[direction] - size,
+      },
+    }));
   }
 }
 
@@ -100,126 +192,9 @@ interface DataMap {
   };
 }
 
-@Injectable()
-export class DataService {
-  private readonly dataMap$ = new BehaviorSubject<DataMap>({});
-
-  private getDataByAxis(axisId: string): Observable<number[]> {
-    return this.dataMap$.pipe(
-      map((dataMap) => {
-        return Object.values(dataMap).map((d) => {
-          if (d.xAxisId === axisId) {
-            return d.data.map(({ x }) => x);
-          } else if (d.yAxisId === axisId) {
-            return d.data.map(({ y }) => y);
-          } else {
-            return [];
-          }
-        });
-      }),
-      map((allData: number[][]) => allData.flat())
-    );
-  }
-
-  setData(key: string, data: DataPoint[], xAxisId = '', yAxisId = '') {
-    this.dataMap$.next({
-      ...this.dataMap$.value,
-      [key]: {
-        data,
-        xAxisId,
-        yAxisId,
-      },
-    });
-  }
-
-  deleteData(key: string) {
-    const { [key]: _, ...everythingElse } = this.dataMap$.value;
-    this.dataMap$.next(everythingElse);
-  }
-
-  getData(key: string) {
-    return this.dataMap$.pipe(map((dataMap) => dataMap[key]?.data));
-  }
-
-  getExtents(axisId: string): Observable<[number, number]> {
-    return this.getDataByAxis(axisId).pipe(
-      map((data) => {
-        let min = Infinity;
-        let max = -Infinity;
-
-        for (const d of data) {
-          if (d < min) min = d;
-          if (d > max) max = d;
-        }
-
-        return [min, max];
-      })
-    );
-  }
-}
-
-@Injectable()
-export class ChartService {
-  /**
-   * data-map ->
-   * id: {xAxisId, yAxisId, data}
-   */
-  private readonly dataMap = new BehaviorSubject<{ [id: string]: DataPoint[] }>(
-    {}
-  );
-
-  constructor(private readonly size$: NgResizeObserver) {}
-
-  setData(key: string, data: DataPoint[], xAxisId = '', yAxisid = '') {
-    this.dataMap.next({
-      ...this.dataMap.value,
-      [key]: data,
-    });
-  }
-
-  getData(key: string) {
-    return this.dataMap.pipe(map((dataMap) => dataMap[key]));
-  }
-
-  getExtents(axisId: string) {
-    // todo replace getBounds
-  }
-
-  getBounds(): Observable<[number, number]> {
-    return this.dataMap.pipe(
-      map((dataMap) => Object.values(dataMap)),
-      map((allDataPoints) => {
-        let min = Infinity;
-        let max = -Infinity;
-        // return [0, 0];
-        for (const dataPoints of allDataPoints) {
-          for (const d of dataPoints) {
-            if (d.x < min) {
-              min = d.x;
-            }
-            if (d.x > max) {
-              max = d.x;
-            }
-          }
-        }
-        return [min, max];
-      })
-    );
-  }
-
-  getXScale() {
-    return combineLatest(this.getBounds(), this.size$).pipe(
-      map(([bounds, size]) => {
-        return scaleLinear().domain(bounds).range([0, size.width]);
-      })
-    );
-    // return scaleLinear([]);
-  }
-}
-
 @Component({
   selector: 'chart',
-  providers: [ChartService, DataService, LayoutService],
+  providers: [ChartStore],
   template: `<svg [attr.viewBox]="viewBox$ | async" style="display: block;">
     <ng-content></ng-content>
   </svg>`,
@@ -237,12 +212,23 @@ export class Chart {
   // private readonly fooSize$ = of({
   //     width: this.el.nativeElement.
   // })
+  /**
+   * Escape hatch if you need to render _a lot_ of series at once, and are not lazy-loading
+   * TODO: add companion components for lines/etc that takes in the KEY instead of the DATA
+   */
+  @Input()
+  set data(allData: AddData[]) {
+    for (const data of allData) {
+      this.chartStore.addData(data);
+    }
+  }
+
   readonly foo$ = of({
     width: this.el.nativeElement.clientWidth,
     height: this.el.nativeElement.clientHeight,
   });
 
-  readonly viewBox$ = merge(this.foo$, this.size$).pipe(
+  readonly viewBox$ = merge(this.foo$, this.chartStore.size$).pipe(
     map(({ width, height }) => `0 0 ${width} ${height}`),
     observeOn(animationFrameScheduler)
     // take(10)
@@ -250,9 +236,17 @@ export class Chart {
 
   constructor(
     // @Optional() chartResize: ResizeObserverService,
-    private size$: NgResizeObserver,
-    private el: ElementRef
-  ) {}
+    // private size$: NgResizeObserver,
+    private el: ElementRef,
+    private readonly chartStore: ChartStore
+  ) {
+    chartStore.setSize([
+      el.nativeElement.clientWidth,
+      el.nativeElement.clientHeight,
+    ]);
+
+    chartStore.state$.subscribe(console.log);
+  }
 }
 
 @Component({
@@ -275,22 +269,10 @@ export class Chart {
   },
 })
 export class XAxis {
-  // foo$ = this.chartService.getBounds();
-  private readonly xScale$ = combineLatest(
-    this.dataService.getExtents('_x_'),
-    this.layoutService.getSize()
-  ).pipe(
-    map(([extents, size]) => {
-      return scaleLinear().domain(extents).range([0, size.width]);
-    })
-  );
-
-  readonly foobar$ = this.xScale$.pipe(map((xScale) => xScale.ticks(4)));
-
   // readonly axisPath$ = this.
   readonly axisPath$ = combineLatest(
-    this.xScale$,
-    this.layoutService.getSize()
+    this.chartStore.getScaleByAxis('_x_', 'primary'),
+    this.chartStore.size$
   ).pipe(
     map(([xScale, size]) => {
       const lineGenerator = line()
@@ -311,8 +293,8 @@ export class XAxis {
   );
 
   readonly ticks$ = combineLatest(
-    this.xScale$,
-    this.layoutService.getSize()
+    this.chartStore.getScaleByAxis('_x_', 'primary'),
+    this.chartStore.size$
   ).pipe(
     observeOn(animationFrameScheduler),
     map(([xScale, size]) => {
@@ -335,11 +317,11 @@ export class XAxis {
   private readonly relinquishSpace: () => void;
 
   constructor(
-    private readonly dataService: DataService,
-    private readonly layoutService: LayoutService,
-    private sanitizer: DomSanitizer
+    private sanitizer: DomSanitizer,
+    private readonly chartStore: ChartStore
   ) {
-    this.relinquishSpace = this.layoutService.requestSpace('bottom', 20);
+    // this.relinquishSpace = this.layoutService.requestSpace('bottom', 20);
+    this.relinquishSpace = chartStore.requestSpace('bottom', 20);
   }
 
   ngOnDestroy() {
@@ -363,65 +345,34 @@ export const RESIZE_OBSERVER = new InjectionToken<ResizeObserverClass>(
   }
 );
 
-@Injectable()
-export class ResizeObserverService {
-  private onResizeSubject = new Subject();
+@Directive({
+  selector: 'chart[render-on-resize]',
+})
+export class ChartResize {
   private resizeObserver: any;
-  public onResize: Observable<{}> = this.onResizeSubject.asObservable();
 
   constructor(
-    @Inject(RESIZE_OBSERVER) ResizeObserverCl: ResizeObserverClass,
-    cdr: ChangeDetectorRef,
-    ngZone: NgZone
+    private readonly elRef: ElementRef,
+    chartStore: ChartStore,
+    ngZone: NgZone,
+    @Inject(RESIZE_OBSERVER) ResizeObserverCl: ResizeObserverClass
   ) {
     this.resizeObserver = new ResizeObserverCl((entries) => {
       const entry = entries && entries[0];
       if (entry) {
+        const { width, height } = entry.contentRect;
+        console.log(width, height);
         ngZone.run(() => {
-          this.onResizeSubject.next(entry.contentRect);
+          chartStore.setSize([width, height]);
         });
-        // cdr.detectChanges();
       }
     });
-  }
 
-  observe(target: HTMLElement) {
-    this.resizeObserver.observe(target);
-  }
-
-  unobserve(target: HTMLElement) {
-    this.resizeObserver.unobserve(target);
-  }
-}
-
-export function ngResizeObserverFactory(
-  resizeObserverService: ResizeObserverService
-) {
-  return resizeObserverService.onResize;
-}
-
-class NgResizeObserver extends Observable<{ width: number; height: number }> {}
-
-const NgResizeObserverProvider = {
-  provide: NgResizeObserver,
-  useFactory: ngResizeObserverFactory,
-  deps: [ResizeObserverService],
-};
-
-@Directive({
-  selector: '[render-on-resize]',
-  providers: [ResizeObserverService, NgResizeObserverProvider],
-})
-export class ChartResize {
-  constructor(
-    private readonly resizeObserverService: ResizeObserverService,
-    private readonly elRef: ElementRef
-  ) {
-    resizeObserverService.observe(elRef.nativeElement);
+    this.resizeObserver.observe(elRef.nativeElement);
   }
 
   ngOnDestroy() {
-    this.resizeObserverService.unobserve(this.elRef.nativeElement);
+    this.resizeObserver.unobserve(this.elRef.nativeElement);
   }
 }
 
@@ -442,31 +393,13 @@ interface CircleProps extends DataPoint {
 export class ReferencePoint {
   id = `${Math.random()}`;
 
-  private readonly xScale$ = combineLatest(
-    this.dataService.getExtents('_x_'),
-    this.layoutService.getSize()
-  ).pipe(
-    map(([extents, size]) => {
-      return scaleLinear().domain(extents).range([0, size.width]);
-    })
-  );
-  private readonly yScale$ = combineLatest(
-    this.dataService.getExtents('_y_'),
-    this.layoutService.getSize()
-  ).pipe(
-    map(([extents, size]) => {
-      return scaleLinear().domain(extents).range([0, size.height]);
-    })
-  );
-
   readonly referencePoint$: Observable<CircleProps> = combineLatest(
-    this.dataService.getData(this.id),
-    this.xScale$,
-    this.yScale$
+    this.chartStore.getData(this.id),
+    this.chartStore.getScaleByAxis('_x_', 'primary'),
+    this.chartStore.getScaleByAxis('_y_', 'secondary')
   ).pipe(
     map(([[data], xScale, yScale]) => {
       return {
-        ...data,
         x: xScale(data.x),
         y: yScale(data.y),
         r: 10,
@@ -476,16 +409,18 @@ export class ReferencePoint {
 
   @Input('referencePoint')
   set referencePoint(referencePoint: DataPoint) {
-    this.dataService.setData(this.id, [referencePoint], '_x_', '_y_');
+    this.chartStore.addData({
+      id: this.id,
+      data: [referencePoint],
+      xAxisId: '_x_',
+      yAxisId: '_y_',
+    });
   }
 
-  constructor(
-    private readonly dataService: DataService,
-    private readonly layoutService: LayoutService
-  ) {}
+  constructor(private readonly chartStore: ChartStore) {}
 
   ngOnDestroy() {
-    this.dataService.deleteData(this.id);
+    // this.dataService.deleteData(this.id);
   }
 }
 
@@ -502,27 +437,10 @@ interface LineProps {
 export class Line {
   id = `${Math.random()}`;
 
-  private readonly xScale$ = combineLatest(
-    this.dataService.getExtents('_x_'),
-    this.layoutService.getPlane()
-  ).pipe(
-    map(([extents, plane]) => {
-      return scaleLinear().domain(extents).range([plane.left, plane.right]);
-    })
-  );
-  private readonly yScale$ = combineLatest(
-    this.dataService.getExtents('_y_'),
-    this.layoutService.getPlane()
-  ).pipe(
-    map(([extents, plane]) => {
-      return scaleLinear().domain(extents).range([plane.top, plane.bottom]);
-    })
-  );
-
   readonly line$: Observable<LineProps> = combineLatest(
-    this.dataService.getData(this.id),
-    this.xScale$,
-    this.yScale$
+    this.chartStore.getData(this.id),
+    this.chartStore.getScaleByAxis('_x_', 'primary'),
+    this.chartStore.getScaleByAxis('_y_', 'secondary')
   ).pipe(
     map(([data, xScale, yScale]) => {
       const lineGenerator = line()
@@ -541,15 +459,17 @@ export class Line {
 
   @Input('line')
   set line(line: DataPoint[]) {
-    this.dataService.setData(this.id, line, '_x_', '_y_');
+    this.chartStore.addData({
+      id: this.id,
+      data: line,
+      xAxisId: '_x_',
+      yAxisId: '_y_',
+    });
   }
 
-  constructor(
-    private readonly dataService: DataService,
-    private readonly layoutService: LayoutService
-  ) {}
+  constructor(private readonly chartStore: ChartStore) {}
 
   ngOnDestroy() {
-    this.dataService.deleteData(this.id);
+    // this.dataService.deleteData(this.id);
   }
 }
