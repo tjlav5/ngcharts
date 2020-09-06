@@ -3,14 +3,25 @@
 <chart render-on-resize style="width: 100vw; height: 100vh">
   <!-- <svg:circle x="1" y="10" r="2"></svg:circle> -->
 
+  <!--
+    TODO: referencePoint
+    * custom projection with a templateRef?
+  -->
   <svg:g [referencePoint]="{ x: 1, y: 10 }" />
   <svg:g [referencePoint]="{ x: 50, y: 50 }" />
   <svg:g [referencePoint]="{ x: 100, y: 100 }" />
 
+  <!-- Performance check -->
   <!-- <ng-container *ngFor="let foo of [].constructor(20); index as i">
     <svg:g [referencePoint]="{ x: i * 50, y: i * 50 }" />
   </ng-container> -->
 
+  <!--
+    TODO: lines 
+    * rename to curves
+    * Input() d3.curve
+    * Show/Hide points (can we even project custom points with a templateRef)
+  -->
   <svg:g
     color="blue"
     [line]="[
@@ -29,5 +40,12 @@
     ]"
   />
 
+  <!--
+    TODO: axis
+    * xAxis (and yAxis) should be composed from a cartesianAxis with some extra layout knowledge baked in
+    * Switch from svg:path -> svg:line
+    * Ticks - formatter, templateRef, etc
+    * Height?? Probably a fixed px, we don't want the tick-labels to shrink
+  -->
   <svg:g xAxis />
 </chart>
