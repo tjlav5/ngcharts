@@ -1,8 +1,17 @@
 import { NgModule } from '@angular/core';
-import { Chart, XAxis, ChartResize, Line, ReferencePoint } from './chart';
+import { Chart, XAxis, Path, ReferencePoint, Line } from './chart';
 import { CommonModule } from '@angular/common';
+import { ChartResize } from './resize';
 
-const EXPORTED_COMPONENTS = [Line, XAxis, Chart, ChartResize, ReferencePoint];
+const EXPORTED_COMPONENTS = [
+  ChartResize,
+  Path,
+  XAxis,
+  Chart,
+  ChartResize,
+  ReferencePoint,
+  Line,
+];
 
 @NgModule({
   imports: [CommonModule],
