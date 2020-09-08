@@ -1,6 +1,10 @@
 import { scaleLinear } from 'd3-scale';
 import { ComponentStore } from '@ngrx/component-store';
-import { CartesianStore } from './store/cartesian';
+import {
+  CartesianStore,
+  DEFAULT_X_AXIS,
+  DEFAULT_Y_AXIS,
+} from './store/cartesian';
 import { curveLinear, line } from 'd3-shape';
 import { axisBottom } from 'd3-axis';
 import {
@@ -54,21 +58,91 @@ import { DataPoint } from './types';
 export class Chart {
   readonly viewBox$ = this.layoutStore.viewBox$;
 
-  constructor(el: ElementRef, private readonly layoutStore: LayoutStore) {
+  constructor(
+    el: ElementRef,
+    private readonly layoutStore: LayoutStore,
+    dataStore: DataStore,
+    cartesianStore: CartesianStore
+  ) {
     layoutStore.setSize([
       el.nativeElement.clientWidth,
       el.nativeElement.clientHeight,
     ]);
+
+    // dataStore.state$.subscribe(console.log)
+    cartesianStore.state$.subscribe(console.log);
+  }
+}
+
+@Component({
+  selector: 'g[yAxis]',
+  template: ` <svg:g [line]="{ x: 0 }" />
+    <svg:g
+      *ngFor="let tick of ticks$ | async"
+      [style.transform]="tick.transform"
+      [style.fill]="'blue'"
+    >
+      <svg:line stroke="currentColor" y2="6"></svg:line>
+      <svg:line
+        width="60"
+        height="243.703125"
+        x="20"
+        y="5"
+        stroke="#666"
+        fill="none"
+        x1="74"
+        y1="65.92578125"
+        x2="80"
+        y2="65.92578125"
+      ></svg:line>
+      <svg:text fill="currentColor" y="9" dy="0.71em">{{ tick.text }}</svg:text>
+    </svg:g>`,
+  host: {
+    'text-anchor': 'middle',
+  },
+})
+export class YAxis {
+  axisId = DEFAULT_Y_AXIS;
+  width = 60;
+
+  readonly ticks$ = combineLatest(
+    this.cartesianStore.getScaleByAxis(this.axisId),
+    this.layoutStore.size$
+  ).pipe(
+    observeOn(animationFrameScheduler),
+    map(([yScale, size]) => {
+      const newTicks = yScale.ticks.map((t: string | number) => ({
+        transform: this.sanitizer.bypassSecurityTrustStyle(
+          `translate(0px, ${yScale.scale(t)}px)`
+        ),
+        // Don't neet xScale... really need layoutStore to return the range for the plane
+        // x1: xScale.scale(0) - this.width,
+        text: `${t}`,
+      }));
+      return newTicks;
+    })
+  );
+
+  private readonly relinquishSpace: () => void;
+
+  constructor(
+    private sanitizer: DomSanitizer,
+    private readonly dataStore: DataStore,
+    private readonly layoutStore: LayoutStore,
+    private readonly cartesianStore: CartesianStore
+  ) {
+    // this.relinquishSpace = this.layoutService.requestSpace('bottom', 20);
+    this.relinquishSpace = layoutStore.requestSpace('left', 60);
+  }
+
+  ngOnDestroy() {
+    this.relinquishSpace();
   }
 }
 
 @Component({
   selector: 'g[xAxis]',
-  template: `<svg:path
-      *ngIf="axisPath$ | async as axisPath"
-      [attr.d]="axisPath.d"
-      stroke="green"
-    ></svg:path>
+  template: ` <svg:g [line]="{ y: 0 }" />
     <svg:g
       *ngFor="let tick of ticks$ | async"
       [style.transform]="tick.transform"
@@ -82,47 +156,20 @@ export class Chart {
   },
 })
 export class XAxis {
-  // readonly axisPath$ = this.
-  readonly axisPath$ = combineLatest(
-    this.cartesianStore.getScaleByAxis('_x_', 'primary'),
-    this.layoutStore.size$
-  ).pipe(
-    map(([xScale, size]) => {
-      const lineGenerator = line()
-        // .curve(curveLinear)
-        .x(function (d) {
-          return xScale(d[0]);
-        })
-        .y(function (d) {
-          return size.height - 20;
-        });
-      return {
-        d: lineGenerator([
-          [0, 0],
-          [500, 0],
-        ]),
-      };
-    })
-  );
+  axisId = DEFAULT_X_AXIS;
 
   readonly ticks$ = combineLatest(
-    this.cartesianStore.getScaleByAxis('_x_', 'primary'),
+    this.cartesianStore.getScaleByAxis(this.axisId),
     this.layoutStore.size$
   ).pipe(
     observeOn(animationFrameScheduler),
     map(([xScale, size]) => {
-      // transform x+y
-      // text
-
-      const ticks = xScale.ticks();
-      //   console.log(ticks);
-      const newTicks = ticks.map((t) => ({
+      const newTicks = xScale.ticks.map((t: string | number) => ({
         transform: this.sanitizer.bypassSecurityTrustStyle(
-          `translate(${xScale(t)}px, ${size.height - 20}px)`
+          `translate(${xScale.scale(t)}px, ${size.height - 20}px)`
         ),
         text: `${t}`,
       }));
-      //   console.log(newTicks);
       return newTicks;
     })
   );
@@ -162,10 +209,12 @@ interface CircleProps {
 })
 export class ReferencePoint {
   id = `${Math.random()}`;
+  xAxisId = DEFAULT_X_AXIS;
+  yAxisId = DEFAULT_Y_AXIS;
 
   readonly referencePoint$: Observable<CircleProps> = combineLatest(
     this.dataStore.getData(this.id),
-    this.cartesianStore.getPointGenerator('_x_', '_y_')
+    this.cartesianStore.getPointGenerator(this.xAxisId, this.yAxisId)
   ).pipe(map(([[data], pointGenerator]) => pointGenerator(data)));
 
   @Input('referencePoint')
@@ -173,8 +222,8 @@ export class ReferencePoint {
     this.dataStore.addData({
       id: this.id,
       data: [referencePoint],
-      xAxisId: '_x_',
-      yAxisId: '_y_',
+      xAxisId: this.xAxisId,
+      yAxisId: this.yAxisId,
     });
   }
 
@@ -209,10 +258,12 @@ interface LineProps {
 })
 export class Line {
   id = `${Math.random()}`;
+  xAxisId = DEFAULT_X_AXIS;
+  yAxisId = DEFAULT_Y_AXIS;
 
   readonly line$: Observable<LineProps> = combineLatest(
     this.dataStore.getData(this.id),
-    this.compositeStore.getLineGenerator('_x_', '_y_')
+    this.compositeStore.getLineGenerator(this.xAxisId, this.yAxisId)
   ).pipe(map(([[data], lineGenerator]) => lineGenerator(data)));
 
   @Input('line')
@@ -228,8 +279,8 @@ export class Line {
           ...line,
         },
       ],
-      xAxisId: '_x_',
-      yAxisId: '_y_',
+      xAxisId: this.xAxisId,
+      yAxisId: this.yAxisId,
     });
   }
 
@@ -256,9 +307,12 @@ interface PathProps {
 export class Path {
   id = `${Math.random()}`;
 
+  xAxisId = DEFAULT_X_AXIS;
+  yAxisId = DEFAULT_Y_AXIS;
+
   readonly path$: Observable<PathProps> = combineLatest(
     this.dataStore.getData(this.id),
-    this.compositeStore.getPathGenerator('_x_', '_y_')
+    this.compositeStore.getPathGenerator(this.xAxisId, this.yAxisId)
   ).pipe(map(([data, pathGenerator]) => pathGenerator(data)));
 
   @Input('path')
@@ -266,8 +320,8 @@ export class Path {
     this.dataStore.addData({
       id: this.id,
       data: path,
-      xAxisId: '_x_',
-      yAxisId: '_y_',
+      xAxisId: this.xAxisId,
+      yAxisId: this.yAxisId,
     });
   }
 

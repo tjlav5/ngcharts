@@ -2,9 +2,8 @@
 
 <chart render-on-resize style="width: 100vw; height: 100vh">
   <!-- <svg:circle x="1" y="10" r="2"></svg:circle> -->
-  <svg:line x1="10" x2="100" y1="100" y2="100" stroke="orange"></svg:line>
-  <svg:g [line]="{ x: 10 }" stoke="purple" />
-  <svg:g [line]="{ y: 100 }" stoke="purple" />
+  <!-- <svg:line x1="10" x2="100" y1="100" y2="100" stroke="orange"></svg:line> -->
+  <!-- <svg:g [line]="{ x: 50 }" stoke="purple" /> -->
 
   <!--
     TODO: referencePoint
@@ -25,14 +24,14 @@
     * Input() d3.curve
     * Show/Hide points (can we even project custom points with a templateRef)
   -->
-  <svg:g
+  <!-- <svg:g
     color="blue"
     [path]="[
       { x: 0, y: 10 },
       { x: 20, y: 70 },
       { x: 500, y: 20 }
     ]"
-  />
+  /> -->
 
   <svg:g
     *ngFor="let randomLine of randomLines"
@@ -40,14 +39,17 @@
     [path]="randomLine"
   />
 
-  <svg:g
+  <!-- <svg:g
     color="red"
     [path]="[
       { x: 0, y: 90 },
       { x: 20, y: 30 },
       { x: 500, y: 120 }
     ]"
-  />
+  /> -->
+
+  <svg:g [line]="{ x: 10 }" stoke="purple" />
+  <svg:g [line]="{ y: 50 }" stoke="purple" />
 
   <!--
     TODO: axis
@@ -57,4 +59,5 @@
     * Height?? Probably a fixed px, we don't want the tick-labels to shrink
   -->
   <svg:g xAxis />
+  <svg:g yAxis />
 </chart>

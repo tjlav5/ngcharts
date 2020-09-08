@@ -1,4 +1,8 @@
-export interface DataPoint {
-  x: number | null;
-  y: number | null;
+export type DataValue = number | string | null;
+
+export interface DataPoint<X = DataValue, Y = DataValue> {
+  x: X;
+  y: Y;
 }
+
+export type AxisId = string | symbol;

@@ -1,20 +1,20 @@
 import { Injectable } from '@angular/core';
 import { ComponentStore } from '@ngrx/component-store';
-import { DataPoint } from '../types';
+import { DataPoint, AxisId, DataValue } from '../types';
 import { Observable } from 'rxjs';
 
 interface DataState {
   data: {
     [key: string]: {
-      xAxisId: string;
-      yAxisId: string;
+      xAxisId: AxisId;
+      yAxisId: AxisId;
       data: DataPoint[];
     };
   };
 }
 
 interface AddData {
-  id: string;
+  id: AxisId;
   data: DataPoint[];
   xAxisId: string;
   yAxisId: string;
@@ -52,15 +52,15 @@ export class DataStore extends ComponentStore<DataState> {
     };
   });
 
-  private getDataByAxis(axisId: string) {
+  getDataByAxis<R = DataValue>(axisId: string) {
     return this.select(this.allData$, (allData) => {
       return Object.values(allData).flatMap((data) => {
         if (data.xAxisId === axisId) {
-          return data.data.map((d) => d.x);
+          return data.data.map((d) => (d.x as unknown) as R);
         } else if (data.yAxisId === axisId) {
-          return data.data.map((d) => d.y);
+          return data.data.map((d) => (d.y as unknown) as R);
         } else {
-          return [];
+          return [] as R[];
         }
       });
     });
@@ -71,7 +71,7 @@ export class DataStore extends ComponentStore<DataState> {
       let min = Infinity;
       let max = -Infinity;
 
-      for (const d of data) {
+      for (const d of data as number[]) {
         if (d < min) min = d;
         if (d > max) max = d;
       }
